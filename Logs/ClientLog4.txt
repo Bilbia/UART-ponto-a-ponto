@@ -1,0 +1,5 @@
+11-10-20 23:01:08 - Arquivo selecionado: D:/Libraries/Documents/Insper/Camada Física/UART-ponto-a-ponto/imgs/l.png
+11-10-20 23:01:08 - envio / 1 / 14
+11-10-20 23:01:13 - receb / 2 / 14
+11-10-20 23:01:13 - envio / 3 / 128 / 1 / 10 / 36448
+11-10-20 23:01:33 - envio / 5 / 14

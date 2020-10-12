@@ -8,11 +8,14 @@
 from enlace import *
 import time
 import crcmod
+import logging
 
 
 idServer = 10
 EOP = (255).to_bytes(1, 'big') + (170).to_bytes(1, 'big') + (255).to_bytes(1, 'big') + (170).to_bytes(1, 'big')
 crc16_func = crcmod.mkCrcFun(0x11021, initCrc=0, xorOut=0xFFFFFFFF)
+logging.basicConfig(filename='ServerLog2.txt', filemode='w', format='%(asctime)s - %(message)s', datefmt='%d-%m-%y %H:%M:%S', level=logging.INFO)
+
 
 def confirmHandshake(header, eopCheck):
     packType = int.from_bytes(header[:1], 'big')
@@ -21,6 +24,8 @@ def confirmHandshake(header, eopCheck):
 
     if packType == 1 and EOP == eopCheck and packIdServer == idServer:
         return packIdSensor, True
+    else:
+        return packIdSensor, False
 
 def buildHandshake(idSensor):
     h0 = (2).to_bytes(1, 'big')
@@ -50,7 +55,7 @@ def buildTimeout(idSensor):
     pack = header + EOP
     return pack
 
-def confirmBuilder (idSensor, eopCheck, packIdCheck, packIdCounter):
+def confirmBuilder (idSensor, eopCheck, packIdCheck, packIdCounter, crcCheck):
     h0 = (4).to_bytes(1, 'big')
     h1 = idSensor.to_bytes(1, 'big')
     h2 = idServer.to_bytes(1, 'big')
@@ -60,7 +65,7 @@ def confirmBuilder (idSensor, eopCheck, packIdCheck, packIdCounter):
     h6 = packIdCounter.to_bytes(1, 'big')
     h7 = (packIdCounter-1).to_bytes(1, 'big')
     
-    if packIdCheck == False or eopCheck == False:
+    if packIdCheck == False or eopCheck == False or crcCheck == False:
         print(packIdCheck)
         print(eopCheck)
         h0 = (6).to_bytes(1, 'big')
@@ -87,16 +92,19 @@ def main():
 
         #Handshake
         print("Esperando mensagem de confirmação\n")
+        logging.info("Esperando Handshake")
         while standby:
             if not com2.rx.getIsEmpty():
                 header, nRx = com2.getData(10)
                 eopCheck, nRx = com2.getData(4)
+                logging.info("receb / 1 / 14")
                 idSensor, confirm = confirmHandshake(header, eopCheck)
                 if confirm:
                     print("Ligação estabelecida\n")
                     packN = int.from_bytes(header[3:4], 'big')
                     handshake = buildHandshake(idSensor)
                     com2.sendData(handshake)
+                    logging.info("envio / 2 / 14")
                     standby = False
             time.sleep(1)
 
@@ -131,15 +139,25 @@ def main():
             else:
                 print("Recebendo Header...\n")
                 header, nRx = com2.getData(10)
+                packType = int.from_bytes(header[:1], 'big')
+                if packType == 5:
+                    print("Timeout com o Client\n")
+                    logging.info("receb / 5 / 14")
+                    break
                 packN = int.from_bytes(header[3:4], 'big')
                 packId = int.from_bytes(header[4:5], 'big')
                 plSize = int.from_bytes(header[5:6], 'big')
                 packLast = int.from_bytes(header[7:8], 'big')
-                crc = int.from_bytes(header[8:10], 'big')
+                packCrc = int.from_bytes(header[8:10], 'big')
                 print("Recebendo Payload...\n")
                 payload, nRx = com2.getData(plSize)
                 print("Recebendo EOP...\n")
                 packEOP, nRx = com2.getData(4)
+                packSize = plSize + 14
+                logging.info("receb / 3 / {} / {} / {} / {}".format(packSize, packId, packN, packCrc))
+                crcServer = crc16_func(payload)
+
+                crcCheck = True
                 packIdCheck = True
                 eopCheck = True
 
@@ -159,16 +177,17 @@ def main():
                     print("EOP do pacote {} está incorreto\n".format(packId))
                     print("Quantidade de bytes recebidos incompleta\n")
 
+                if packCrc != crcServer:
+                    crcCheck = False
+                    print("Crc do pacote {} está incorreto\n".format(packId))
                 
                 
                 print("Mandando confirmação para o Client\n-------------------------\n")
-                confirmMsg = confirmBuilder(idSensor, eopCheck, packIdCheck, packIdCounter)
+                confirmMsg = confirmBuilder(idSensor, eopCheck, packIdCheck, packIdCounter, crcCheck)
                 com2.sendData(confirmMsg)
+                logging.info("envio / {} / 14".format(int.from_bytes(confirmMsg[:1], 'big')))
                 print("Confirmacao mandada\n")
-                print(packIdCheck)
-                print(eopCheck)
-                print(int.from_bytes(confirmMsg[:1], 'big'))
-                if packIdCheck == True and eopCheck == True:
+                if packIdCheck == True and eopCheck == True and crcCheck == True:
                     packList.append(payload)
                     packIdCounter += 1
                 
@@ -177,7 +196,7 @@ def main():
         
        
         print("-------------------------\n")
-        print("Comunicação encerrada\nTransmissão bem sucedida\n")
+        print("Comunicação encerrada\n")
         print("-------------------------\n")
         com2.disable()  
     except:

@@ -11,8 +11,10 @@ from tkinter import Tk
 from tkinter.filedialog import askopenfilename
 import math
 import crcmod
+import logging
 
 idSensor = 12
+logging.basicConfig(filename='ClientLog2.txt', filemode='w', format='%(asctime)s - %(message)s', datefmt='%d-%m-%y %H:%M:%S', level=logging.INFO)
 
 def buildPackage(packType, content, idServer):
 
@@ -105,12 +107,14 @@ def main():
         Tk().withdraw()
         content = askopenfilename()
         print("Arquivo selecionado: {}\n".format(content))
+        logging.info("Arquivo selecionado: {}".format(content))
 
         while aliveCheck:
             print("Checando status do server\n")
             handshake = buildPackage(1, content, 10)[0]
             packN = int.from_bytes(handshake[3:4], 'big')
             com1.sendData(handshake)
+            logging.info("envio / 1 / 14")
             print("Esperando resposta do server\n")
             time.sleep(5)
             serverResponseEmpty = com1.rx.getIsEmpty()
@@ -126,6 +130,7 @@ def main():
             else:
                 print("Servidor ativo\n-----------------------------------\n")
                 headshake, nRx = com1.getData(14)
+                logging.info("receb / 2 / 14")
                 aliveCheck = False
                 serverOk = True
         
@@ -135,9 +140,15 @@ def main():
         if serverOk:
             packs = buildPackage(3, content, 10)
             resetTimer = True
+            packId = packCounter-1
             while packCounter <= packN:
                 print("Mandando pacote {} de {}\n".format(packCounter, packN))
-                com1.sendData(packs[packCounter - 1])
+                packSize = len(packs[packId])
+                crc = int.from_bytes(packs[packId][8:10], 'big')
+                com1.sendData(packs[packId])
+                if packId == 6:
+                    time.sleep(10)
+                logging.info("envio / 3 / {} / {} / {} / {}".format(packSize, packCounter, packN, crc))
                 
                 if resetTimer:
                     timer1 = time.time()
@@ -151,26 +162,30 @@ def main():
                         timer1 = time.time()
                     if now - timer2 > 20:
                         timeout = buildPackage(5, content, 10)
-                        print("Timeout na conexão com o Servern\n")
+                        com1.sendData(timeout[0])
+                        print("Timeout na conexão com o Server\n") 
                         print("Encerrando comunicação\n")
+                        logging.info("envio / 5 / 14")
+                        packCounter = packN + 1
                         break
                     serverResponseEmpty = com1.rx.getIsEmpty()
                 else:
-                    print("not empru")
                     header, nRx = com1.getData(10)
                     eopServer, nRx = com1.getData(4)
                     packType = int.from_bytes(header[:1], 'big')
-                    print(packType)
+                    logging.info("receb / {} / 14".format(packType))
                     if packType == 6:
-                        #corrige aqui
                         print("packu 6")
-                        packEsperado = int.from_bytes(header[6:7], 'big')
-                        com1.sendData(packs[packEsperado - 1])
-
+                        packEsperado = int.from_bytes(header[6:7], 'big') 
+                        for index in range(len(packs)):
+                            if int.from_bytes(packs[index][4:5], 'big') == packEsperado:
+                                packId = index
+                                print("mandando o {} certo agora".format(int.from_bytes(packs[index][4:5], 'big')))
                         resetTimer = True
                     else:
                         print("Pacote {} recebido sem problemas\n".format(packCounter))
                         packCounter += 1
+                        packId = packCounter - 1
                         resetTimer = True
 
     
